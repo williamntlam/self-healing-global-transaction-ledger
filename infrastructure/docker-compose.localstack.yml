@@ -1,0 +1,40 @@
+services:
+  localstack-us:
+    image: localstack/localstack:latest
+    container_name: localstack-us-east
+    ports:
+      - "4566:4566"  # US-East endpoint
+    environment:
+      - SERVICES=s3,sqs,iam
+      - DEBUG=1
+      - DATA_DIR=/var/lib/localstack/data
+      - PERSISTENCE=1
+      - LAMBDA_EXECUTOR=docker
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "../localstack-data/us-east:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - atlas-network
+
+  localstack-eu:
+    image: localstack/localstack:latest
+    container_name: localstack-eu-central
+    ports:
+      - "4567:4566"  # EU-Central endpoint (different host port)
+    environment:
+      - SERVICES=s3,sqs,iam
+      - DEBUG=1
+      - DATA_DIR=/var/lib/localstack/data
+      - PERSISTENCE=1
+      - LAMBDA_EXECUTOR=docker
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "../localstack-data/eu-central:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - atlas-network
+
+networks:
+  atlas-network:
+    driver: bridge
