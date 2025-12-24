@@ -596,12 +596,16 @@ docker compose -f docker-compose.localstack.yml ps
 
 **Verify LocalStack:**
 ```bash
-# Test US-East endpoint
-aws --endpoint-url=http://localhost:4566 s3 ls
+# Option 1: Using curl (no AWS CLI needed)
+curl http://localhost:4566/_localstack/health
+curl http://localhost:4567/_localstack/health
 
-# Test EU-Central endpoint
+# Option 2: Using AWS CLI (if installed)
+aws --endpoint-url=http://localhost:4566 s3 ls
 aws --endpoint-url=http://localhost:4567 s3 ls
 ```
+
+**Note:** AWS CLI is optional. You can verify LocalStack is working with curl. Terraform (used later) doesn't require AWS CLI - it uses its own AWS provider.
 
 **Why This Setup:**
 - Two separate LocalStack instances simulate two AWS regions
