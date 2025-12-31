@@ -1,13 +1,29 @@
 # LocalStack persistent data
 localstack-data/
+# Docker volumes and data
+docker-data/
+volumes/
 
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
+*.tfstate.backup
 terraform.tfvars
 *.tfvars
+*.tfvars.json
+# Note: .terraform.lock.hcl should be committed (locks provider versions)
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# Crash logs
+crash.log
+crash.*.log
+# User-specific config
+.terraformrc
+terraform.rc
 
 # Ansible
 *.retry
@@ -16,6 +32,10 @@ terraform.tfvars
 # Kubernetes
 .kubeconfigs/
 *.kubeconfig
+kubeconfig
+kubeconfig.*
+# K3d cluster data
+k3d/
 
 # IDE
 .vscode/
@@ -46,4 +66,12 @@ dist/
 build/
 *.pyc
 __pycache__/
+
+# ArgoCD
+argocd-secret.yaml
+argocd-token-*
+
+# Helm
+charts/*/charts/
+*.tgz
 

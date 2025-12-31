@@ -541,7 +541,7 @@ mkdir -p scripts
 
 ### Step 2.1: Setup LocalStack Multi-Region
 
-**Create `docker-compose.localstack.yml`:**
+**Create `infrastructure/docker-compose.localstack.yml`:**
 ```yaml
 version: '3.8'
 
@@ -551,16 +551,15 @@ services:
     container_name: localstack-us-east
     ports:
       - "4566:4566"  # US-East endpoint
-      - "4510-4559:4510-4559"  # External services port range
     environment:
       - SERVICES=s3,sqs,iam
       - DEBUG=1
-      - DATA_DIR=/tmp/localstack/data
+      - DATA_DIR=/var/lib/localstack/data
       - PERSISTENCE=1
       - LAMBDA_EXECUTOR=docker
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
-      - "./localstack-data/us-east:/tmp/localstack"
+      - "../localstack-data/us-east:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
       - atlas-network
@@ -570,16 +569,15 @@ services:
     container_name: localstack-eu-central
     ports:
       - "4567:4566"  # EU-Central endpoint (different host port)
-      - "4570-4619:4510-4559"  # External services port range
     environment:
       - SERVICES=s3,sqs,iam
       - DEBUG=1
-      - DATA_DIR=/tmp/localstack/data
+      - DATA_DIR=/var/lib/localstack/data
       - PERSISTENCE=1
       - LAMBDA_EXECUTOR=docker
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
-      - "./localstack-data/eu-central:/tmp/localstack"
+      - "../localstack-data/eu-central:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
       - atlas-network
@@ -591,18 +589,23 @@ networks:
 
 **Start LocalStack:**
 ```bash
-docker-compose -f docker-compose.localstack.yml up -d
-docker-compose -f docker-compose.localstack.yml ps
+cd infrastructure
+docker compose -f docker-compose.localstack.yml up -d
+docker compose -f docker-compose.localstack.yml ps
 ```
 
 **Verify LocalStack:**
 ```bash
-# Test US-East endpoint
-aws --endpoint-url=http://localhost:4566 s3 ls
+# Option 1: Using curl (no AWS CLI needed)
+curl http://localhost:4566/_localstack/health
+curl http://localhost:4567/_localstack/health
 
-# Test EU-Central endpoint
+# Option 2: Using AWS CLI (if installed)
+aws --endpoint-url=http://localhost:4566 s3 ls
 aws --endpoint-url=http://localhost:4567 s3 ls
 ```
+
+**Note:** AWS CLI is optional. You can verify LocalStack is working with curl. Terraform (used later) doesn't require AWS CLI - it uses its own AWS provider.
 
 **Why This Setup:**
 - Two separate LocalStack instances simulate two AWS regions
@@ -1660,4 +1663,3 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup cockroach
 ---
 
 Good luck with your implementation! This project will give you hands-on experience with production-grade DevOps practices and multi-region infrastructure patterns.
-
