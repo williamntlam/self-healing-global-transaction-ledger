@@ -1,4 +1,5 @@
 resource "aws_s3_bucket" "audit_logs" {
+    provider = aws
     bucket = "${var.region}-audit-logs"
 
     tags = {
@@ -8,6 +9,7 @@ resource "aws_s3_bucket" "audit_logs" {
 }
 
 resource "aws_s3_bucket_versioning" "audit_logs" {
+    provider = aws
     bucket = aws_s3_bucket.audit_logs.id
 
     versioning_configuration {
@@ -16,6 +18,7 @@ resource "aws_s3_bucket_versioning" "audit_logs" {
 }
 
 resource "aws_sqs_queue" "transaction_queue" {
+    provider = aws
     name = "${var.region}-transaction-queue"
 
     visibility_timeout_seconds = var.sqs_visibility_timeout_seconds
@@ -28,6 +31,7 @@ resource "aws_sqs_queue" "transaction_queue" {
 }
 
 resource "aws_iam_role" "ledger_app_role" {
+    provider = aws
     name = "${var.region}-ledger-app-role"
 
     assume_role_policy = jsonencode({
@@ -43,6 +47,7 @@ resource "aws_iam_role" "ledger_app_role" {
 }
 
 resource "aws_iam_role_policy" "ledger_app_policy" {
+    provider = aws
     name = "${var.region}-ledger-app-policy"
     role = aws_iam_role.ledger_app_role.id
 
