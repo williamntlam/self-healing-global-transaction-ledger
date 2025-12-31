@@ -18,11 +18,13 @@ provider "aws" {
         s3 = "http://localhost:4566"
         sqs = "http://localhost:4566"
         iam = "http://localhost:4566"
+        sts = "http://localhost:4566"
     }
 
     skip_credentials_validation = true
     skip_metadata_api_check = true
     skip_region_validation = true
+    skip_requesting_account_id = true
     access_key = "test"
     secret_key = "test"
 }
@@ -35,11 +37,13 @@ provider "aws" {
         s3 = "http://localhost:4567"
         sqs = "http://localhost:4567"
         iam = "http://localhost:4567"
+        sts = "http://localhost:4567"
     }
 
     skip_credentials_validation = true
     skip_metadata_api_check = true
     skip_region_validation = true
+    skip_requesting_account_id = true
     access_key = "test"
     secret_key = "test"
 }
