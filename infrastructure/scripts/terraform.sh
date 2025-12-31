@@ -5,7 +5,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$INFRA_DIR"
 
 case "${1:-plan}" in
     init)
