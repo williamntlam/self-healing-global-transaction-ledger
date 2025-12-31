@@ -6,6 +6,9 @@ resource "aws_s3_bucket" "audit_logs" {
         Region = var.region
         Purpose = var.audit_logs_tag
     }
+    
+    # Force path-style addressing for LocalStack compatibility
+    force_destroy = false
 }
 
 resource "aws_s3_bucket_versioning" "audit_logs" {
