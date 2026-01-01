@@ -1,0 +1,30 @@
+---
+# ============================================================================
+# Default Variables for k3d-cluster Role
+# ============================================================================
+# 
+# These are default values that will be used if not overridden when calling
+# the role from site.yml or elsewhere.
+#
+# Variable Precedence (lowest to highest):
+#   1. defaults/main.yml (this file) - lowest priority
+#   2. vars in playbook (site.yml) - medium priority
+#   3. -e vars on command line - highest priority
+#
+# ============================================================================
+
+# cluster_name: Name of the K3d cluster to create
+# This will be used in: k3d cluster create <cluster_name>
+cluster_name: "dc-us"
+
+# port_mapping: Port mapping for LoadBalancer services
+# Format: "HOST_PORT:CONTAINER_PORT@loadbalancer"
+# Example: "8080:80@loadbalancer" means:
+#   - Host port 8080 maps to container port 80
+#   - This is for LoadBalancer type services
+port_mapping: "8080:80@loadbalancer"
+
+# region: AWS region identifier (for labeling/tagging)
+# This doesn't affect K3d, but helps identify which region this cluster represents
+region: "us-east-1"
+

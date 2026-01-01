@@ -1,0 +1,135 @@
+---
+# ============================================================================
+# Tasks for k3d-cluster Role
+# ============================================================================
+# 
+# This file contains the actual tasks that create a K3d Kubernetes cluster.
+# Tasks are executed in order, top to bottom.
+#
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Task 1: Check if K3d is installed
+# ----------------------------------------------------------------------------
+- name: Check if K3d is installed
+  # COMMAND MODULE: Runs a shell command
+  # "which k3d" finds the location of the k3d executable
+  # Returns exit code 0 if found, non-zero if not found
+  command: which k3d
+  # REGISTER: Saves the command output to a variable
+  # We'll use this to check if k3d exists
+  register: k3d_check
+  # changed_when: false means this task never reports as "changed"
+  # It's just checking, not making changes
+  changed_when: false
+  # failed_when: false means don't fail if command errors
+  # If k3d isn't installed, we want to handle that gracefully
+  failed_when: false
+
+# ----------------------------------------------------------------------------
+# Task 2: Fail if K3d is not installed
+# ----------------------------------------------------------------------------
+- name: Fail if K3d is not installed
+  # FAIL MODULE: Explicitly fails the playbook with a message
+  # This stops execution if k3d is missing
+  fail:
+    msg: "K3d is not installed. Please install it first. See: https://k3d.io/"
+  # WHEN: Only run this task if the condition is true
+  # k3d_check.rc is the return code (exit code) from the previous command
+  # rc != 0 means the command failed (k3d not found)
+  when: k3d_check.rc != 0
+
+# ----------------------------------------------------------------------------
+# Task 3: Check if cluster already exists
+# ----------------------------------------------------------------------------
+- name: Check if cluster already exists
+  # COMMAND MODULE: List all K3d clusters
+  # k3d cluster list shows all existing clusters
+  # We filter by name to check if our cluster exists
+  command: k3d cluster list --no-headers
+  # REGISTER: Save the output
+  register: existing_clusters
+  # changed_when: false - just checking, not changing anything
+  changed_when: false
+  # failed_when: false - don't fail if command errors
+  failed_when: false
+
+# ----------------------------------------------------------------------------
+# Task 4: Create K3d cluster
+# ----------------------------------------------------------------------------
+- name: Create K3d cluster
+  # COMMAND MODULE: Run the k3d command to create a cluster
+  # The ">" allows multi-line YAML for readability
+  command: >
+    k3d cluster create {{ cluster_name }}
+    --port {{ port_mapping }}
+    --wait
+    --timeout 300s
+  # Explanation of flags:
+  #   --port: Maps host ports to container ports for LoadBalancer
+  #   --wait: Wait for cluster to be ready before returning
+  #   --timeout: Maximum time to wait (300 seconds = 5 minutes)
+  # 
+  # REGISTER: Save command output for potential use later
+  register: cluster_create
+  # changed_when: true means this task reports as "changed" when it runs
+  # This is useful for idempotency - we know when a cluster was created
+  changed_when: true
+  # failed_when: Only fail if the command actually fails
+  # We check the return code (rc) - 0 means success
+  failed_when: cluster_create.rc != 0
+  # WHEN: Only create if cluster doesn't already exist
+  # We check if the cluster name is NOT in the list of existing clusters
+  when: cluster_name not in existing_clusters.stdout
+
+# ----------------------------------------------------------------------------
+# Task 5: Verify cluster is running
+# ----------------------------------------------------------------------------
+- name: Verify cluster is running
+  # COMMAND MODULE: List clusters to verify ours exists
+  command: k3d cluster list
+  # REGISTER: Save the output
+  register: cluster_list
+  # changed_when: false - just checking, not changing
+  changed_when: false
+
+# ----------------------------------------------------------------------------
+# Task 6: Display cluster status
+# ----------------------------------------------------------------------------
+- name: Display cluster status
+  # DEBUG MODULE: Print messages during playbook execution
+  # This shows the user what clusters exist
+  debug:
+    # var: Display a variable's value
+    var: cluster_list.stdout_lines
+  # This is helpful for debugging and confirmation
+
+# ----------------------------------------------------------------------------
+# Task 7: Display success message
+# ----------------------------------------------------------------------------
+- name: Display success message
+  # DEBUG MODULE: Print a custom message
+  debug:
+    # msg: Print a custom message (not a variable)
+    msg: >
+      ✅ K3d cluster '{{ cluster_name }}' is ready!
+      Region: {{ region }}
+      Port mapping: {{ port_mapping }}
+      Use: kubectl --context k3d-{{ cluster_name }} get nodes
+
+# ============================================================================
+# WHAT HAPPENS WHEN THIS ROLE RUNS:
+# ============================================================================
+# 
+# 1. Checks if k3d is installed (fails if not)
+# 2. Checks if cluster already exists (idempotency)
+# 3. Creates the cluster if it doesn't exist
+# 4. Verifies the cluster is running
+# 5. Displays status information
+#
+# IDEMPOTENCY: Safe to run multiple times
+#   - If cluster exists: Skips creation (no error)
+#   - If cluster missing: Creates it
+#
+# ============================================================================
+
