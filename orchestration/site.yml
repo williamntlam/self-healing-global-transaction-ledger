@@ -1,0 +1,265 @@
+---
+# ============================================================================
+# Master Playbook: Build Project Atlas Infrastructure
+# ============================================================================
+#
+# This playbook orchestrates the creation of two Kubernetes clusters (dc-us
+# and dc-eu) and sets up ArgoCD on both.
+#
+# ============================================================================
+
+# PLAY: A play is a set of tasks executed on a set of hosts
+- name: Build Project Atlas Infrastructure
+  # HOSTS: Where to run the tasks
+  # "localhost" means run on the machine executing Ansible
+  # We're creating clusters locally, so we run on localhost
+  hosts: localhost
+  
+  # CONNECTION: How to connect to hosts
+  # "local" means execute directly (no SSH needed)
+  connection: local
+  
+  # GATHER_FACTS: Collect system information (OS, IP, etc.)
+  # We set this to "yes" in case we need system info later
+  gather_facts: yes
+  
+  # VARS: Variables for this playbook
+  # These are like variables in any programming language
+  vars:
+    # kubeconfig_dir: Where to store kubeconfig files for each cluster
+    # playbook_dir is a built-in Ansible variable = directory of this file
+    # We go up one level (..) then into .kubeconfigs
+    kubeconfig_dir: "{{ playbook_dir }}/../.kubeconfigs"
+    # localstack_compose: Path to LocalStack docker-compose file
+    # We need LocalStack running because clusters will connect to it for S3/SQS
+    localstack_compose: "{{ playbook_dir }}/../infrastructure/docker-compose.localstack.yml"
+  
+  # TASKS: The actual work to be done (executed in order)
+  tasks:
+    # ------------------------------------------------------------------------
+    # Task 1: Check if LocalStack is running
+    # ------------------------------------------------------------------------
+    # WHY: LocalStack provides AWS services (S3, SQS) that our clusters need
+    # We must ensure it's running before creating clusters
+    - name: Check if LocalStack containers are running
+      # COMMAND MODULE: Run a shell command
+      # We check if LocalStack containers exist and are running
+      command: docker ps --filter "name=localstack" --format "{{ '{{' }}.Names{{ '}}' }}"
+      register: localstack_check
+      # changed_when: false means this task never reports as "changed"
+      # It's just checking status, not making changes
+      changed_when: false
+      # failed_when: false means don't fail if command errors
+      # If docker isn't running or containers don't exist, that's okay
+      failed_when: false
+    
+    # ------------------------------------------------------------------------
+    # Task 2: Start LocalStack if not running
+    # ------------------------------------------------------------------------
+    - name: Start LocalStack containers
+      # COMMAND MODULE: Run docker compose to start LocalStack
+      # We use docker compose because LocalStack is defined in docker-compose.yml
+      command: >
+        docker compose -f {{ localstack_compose }} up -d
+      # WHEN: Only run this if LocalStack is not running
+      # We check if our previous check found the containers
+      when: >
+        localstack_check.stdout == "" or
+        "localstack-us-east" not in localstack_check.stdout or
+        "localstack-eu-central" not in localstack_check.stdout
+      # register: Save the output
+      register: localstack_start
+    
+    # ------------------------------------------------------------------------
+    # Task 3: Wait for LocalStack US-East to be ready
+    # ------------------------------------------------------------------------
+    - name: Wait for LocalStack US-East to be ready
+      # URI MODULE: Make HTTP requests
+      # We check LocalStack's health endpoint to ensure it's ready
+      uri:
+        url: "http://localhost:4566/_localstack/health"
+        method: GET
+        status_code: 200
+        # timeout: How long to wait for response
+        timeout: 5
+      # UNTIL: Keep retrying until this condition is true
+      # We check if status code is 200 (success)
+      until: localstack_health_us.status == 200
+      # RETRIES: How many times to retry
+      retries: 30
+      # DELAY: Wait 2 seconds between retries
+      delay: 2
+      # REGISTER: Save the result
+      register: localstack_health_us
+      # IGNORE_ERRORS: Don't fail if this errors (we'll check both)
+      ignore_errors: yes
+    
+    # ------------------------------------------------------------------------
+    # Task 4: Wait for LocalStack EU-Central to be ready
+    # ------------------------------------------------------------------------
+    - name: Wait for LocalStack EU-Central to be ready
+      uri:
+        url: "http://localhost:4567/_localstack/health"
+        method: GET
+        status_code: 200
+        timeout: 5
+      until: localstack_health_eu.status == 200
+      register: localstack_health_eu
+      retries: 30
+      delay: 2
+      ignore_errors: yes
+    
+    # ------------------------------------------------------------------------
+    # Task 4: Display LocalStack status
+    # ------------------------------------------------------------------------
+    - name: Display LocalStack status
+      # DEBUG MODULE: Print messages during playbook execution
+      debug:
+        msg: >
+          LocalStack is running and ready!
+          US-East: http://localhost:4566
+          EU-Central: http://localhost:4567
+      # WHEN: Only show if LocalStack is actually ready
+      when: >
+        localstack_health_us.status == 200 and
+        localstack_health_eu.status == 200
+    
+    # ------------------------------------------------------------------------
+    # Task 5: Create directory for kubeconfig files
+    # ------------------------------------------------------------------------
+    - name: Create kubeconfig directory
+      # FILE MODULE: Manages files and directories
+      # This is one of Ansible's built-in modules (like functions)
+      file:
+        # path: Where to create the directory
+        path: "{{ kubeconfig_dir }}"
+        # state: What state should it be in?
+        # "directory" = ensure this directory exists
+        state: directory
+      # This task is idempotent - safe to run multiple times
+      # If directory exists, it does nothing. If missing, creates it.
+    
+    # ------------------------------------------------------------------------
+    # Task 6: Create US-East Kubernetes cluster
+    # ------------------------------------------------------------------------
+    - name: Create US-East cluster
+      # INCLUDE_ROLE: Runs a role (reusable set of tasks)
+      # Roles are like functions - they encapsulate related tasks
+      # We'll create the k3d-cluster role next
+      include_role:
+        # name: Which role to run
+        name: k3d-cluster
+      # vars: Variables to pass to the role
+      # These override the role's default variables
+      vars:
+        cluster_name: dc-us              # Cluster name for US-East
+        port_mapping: "8080:80@loadbalancer"  # Port mapping for LoadBalancer
+        region: us-east-1                # AWS region identifier
+    
+    # ------------------------------------------------------------------------
+    # Task 7: Create EU-Central Kubernetes cluster
+    # ------------------------------------------------------------------------
+    - name: Create EU-Central cluster
+      include_role:
+        name: k3d-cluster
+      vars:
+        cluster_name: dc-eu              # Cluster name for EU-Central
+        port_mapping: "8081:80@loadbalancer"  # Different port for EU
+        region: eu-central-1              # AWS region identifier
+    
+    # ------------------------------------------------------------------------
+    # Task 8: Merge kubeconfigs
+    # ------------------------------------------------------------------------
+    - name: Merge kubeconfigs
+      # COMMAND MODULE: Runs a shell command
+      # This runs the k3d command to merge both cluster configs
+      command: >
+        k3d kubeconfig merge dc-us dc-eu
+        --kubeconfig-merge-default
+      # The ">" allows multi-line commands (YAML syntax)
+      # This makes kubectl able to switch between clusters
+      register: kubeconfig_merge
+      # REGISTER: Saves the command output to a variable
+      # We could use this later if needed (e.g., check for errors)
+    
+    # ------------------------------------------------------------------------
+    # Task 9: Configure LoadBalancer for US-East
+    # ------------------------------------------------------------------------
+    - name: Configure LoadBalancer for US-East
+      include_role:
+        name: loadbalancer-config
+      vars:
+        # kubeconfig_path: Path to this cluster's kubeconfig
+        # We'll extract this from the merged config or use k3d's default
+        kubeconfig_path: "{{ kubeconfig_dir }}/dc-us.yaml"
+        cluster: dc-us
+    
+    # ------------------------------------------------------------------------
+    # Task 10: Configure LoadBalancer for EU-Central
+    # ------------------------------------------------------------------------
+    - name: Configure LoadBalancer for EU-Central
+      include_role:
+        name: loadbalancer-config
+      vars:
+        kubeconfig_path: "{{ kubeconfig_dir }}/dc-eu.yaml"
+        cluster: dc-eu
+    
+    # ------------------------------------------------------------------------
+    # Task 11: Install ArgoCD on US-East cluster
+    # ------------------------------------------------------------------------
+    - name: Install ArgoCD on US-East
+      include_role:
+        name: argocd-install
+      vars:
+        kubeconfig_path: "{{ kubeconfig_dir }}/dc-us.yaml"
+        cluster: dc-us
+    
+    # ------------------------------------------------------------------------
+    # Task 12: Install ArgoCD on EU-Central cluster
+    # ------------------------------------------------------------------------
+    - name: Install ArgoCD on EU-Central
+      include_role:
+        name: argocd-install
+      vars:
+        kubeconfig_path: "{{ kubeconfig_dir }}/dc-eu.yaml"
+        cluster: dc-eu
+
+# ============================================================================
+# HOW TO RUN THIS PLAYBOOK:
+# ============================================================================
+# 
+# 1. Make sure you have Ansible installed:
+#    ansible --version
+#
+# 2. Make sure k3d is installed:
+#    k3d --version
+#
+# 3. Run the playbook:
+#    cd orchestration
+#    ansible-playbook site.yml
+#
+# 4. What happens:
+#    - Checks if LocalStack is running (for AWS services)
+#    - Starts LocalStack if needed (US-East on 4566, EU-Central on 4567)
+#    - Waits for LocalStack to be ready
+#    - Creates .kubeconfigs/ directory
+#    - Creates dc-us cluster (K3d)
+#    - Creates dc-eu cluster (K3d)
+#    - Merges kubeconfigs so you can switch between clusters
+#    - Sets up LoadBalancer (MetalLB) on both clusters
+#    - Installs ArgoCD on both clusters
+#
+# ============================================================================
+# KEY ANSIBLE CONCEPTS USED:
+# ============================================================================
+#
+# 1. PLAYBOOK: This file - defines what to do
+# 2. PLAY: One section (we have one play here)
+# 3. TASKS: Individual actions (create dir, run role, etc.)
+# 4. ROLES: Reusable automation (k3d-cluster, argocd-install, etc.)
+# 5. MODULES: Built-in functions (file, command, etc.)
+# 6. VARIABLES: {{ variable_name }} - used for dynamic values
+# 7. IDEMPOTENCY: Safe to run multiple times (won't break if run again)
+#
+# ============================================================================
+
