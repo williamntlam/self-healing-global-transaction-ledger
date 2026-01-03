@@ -1,0 +1,169 @@
+---
+# ============================================================================
+# Tasks for loadbalancer-config Role
+# ============================================================================
+# 
+# This role installs and configures MetalLB for Kubernetes LoadBalancer support.
+# MetalLB is needed because K3d (local Kubernetes) doesn't have built-in
+# LoadBalancer support like cloud providers do.
+#
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Task 1: Create MetalLB namespace
+# ----------------------------------------------------------------------------
+- name: Create MetalLB namespace
+  # KUBERNETES.CORE.K8S MODULE: Manages Kubernetes resources
+  # This creates a namespace where MetalLB will be installed
+  kubernetes.core.k8s:
+    name: metallb-system
+    api_version: v1
+    kind: Namespace
+    state: present
+    # kubeconfig: Path to the cluster's kubeconfig file
+    # This comes from site.yml as a variable
+    kubeconfig: "{{ kubeconfig_path }}"
+  # state: present means "ensure it exists" - idempotent!
+  # If namespace exists, does nothing. If missing, creates it.
+
+# ----------------------------------------------------------------------------
+# Task 2: Install MetalLB using Helm
+# ----------------------------------------------------------------------------
+- name: Install MetalLB using Helm
+  # KUBERNETES.CORE.HELM MODULE: Installs Helm charts
+  # Helm is a package manager for Kubernetes (like apt/yum for Linux)
+  kubernetes.core.helm:
+    name: metallb
+    # repo_url: Helm repository URL where MetalLB chart is hosted
+    repo_url: https://metallb.github.io/metallb
+    # chart_ref: Chart name in format repo/chart
+    chart_ref: metallb/metallb
+    # release_namespace: Where to install the chart
+    release_namespace: metallb-system
+    # kubeconfig: Path to cluster's kubeconfig
+    kubeconfig: "{{ kubeconfig_path }}"
+    # create_namespace: false because we created it manually in Task 1
+    create_namespace: false
+  # This will download and install MetalLB from the Helm repository
+
+# ----------------------------------------------------------------------------
+# Task 3: Wait for MetalLB controller to be ready
+# ----------------------------------------------------------------------------
+- name: Wait for MetalLB controller to be ready
+  # KUBERNETES.CORE.K8S_INFO MODULE: Queries Kubernetes resources
+  # We use this to check if MetalLB pods are running
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: metallb-system
+    # label_selectors: Find pods with these labels
+    # MetalLB controller pods have these labels
+    label_selectors:
+      - app.kubernetes.io/name=metallb
+      - component=controller
+    kubeconfig: "{{ kubeconfig_path }}"
+  # REGISTER: Save the result to a variable
+  register: metallb_controller
+  # UNTIL: Keep retrying until this condition is true
+  # We check if pods exist and are running
+  until: >
+    metallb_controller.resources | length > 0 and
+    metallb_controller.resources[0].status.phase == "Running"
+  # RETRIES: Maximum number of attempts (30 * 5 = 150 seconds max)
+  retries: 30
+  # DELAY: Wait 5 seconds between retries
+  delay: 5
+  # IGNORE_ERRORS: Don't fail if query errors (pods might not exist yet)
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 4: Wait for MetalLB speaker to be ready
+# ----------------------------------------------------------------------------
+- name: Wait for MetalLB speaker to be ready
+  # Similar to controller, but for speaker pods
+  # Speaker pods handle the actual LoadBalancer IP assignment
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: metallb-system
+    label_selectors:
+      - app.kubernetes.io/name=metallb
+      - component=speaker
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: metallb_speaker
+  until: >
+    metallb_speaker.resources | length > 0 and
+    metallb_speaker.resources[0].status.phase == "Running"
+  retries: 30
+  delay: 5
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 5: Create IPAddressPool for LoadBalancer
+# ----------------------------------------------------------------------------
+- name: Create IPAddressPool for LoadBalancer
+  # KUBERNETES.CORE.K8S MODULE: Creates a custom Kubernetes resource
+  # IPAddressPool is a MetalLB custom resource (CRD)
+  kubernetes.core.k8s:
+    # definition: The Kubernetes resource definition (YAML format)
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: default-pool
+        namespace: metallb-system
+      spec:
+        # addresses: IP range that MetalLB can assign to LoadBalancer services
+        # 172.18.0.100-172.18.0.200 is safe for Docker/K3d networks
+        addresses:
+        - 172.18.0.100-172.18.0.200
+    kubeconfig: "{{ kubeconfig_path }}"
+  # This tells MetalLB which IP addresses it can use
+
+# ----------------------------------------------------------------------------
+# Task 6: Create L2Advertisement
+# ----------------------------------------------------------------------------
+- name: Create L2Advertisement
+  # L2Advertisement links to the IPAddressPool
+  # This tells MetalLB to use Layer 2 mode (works best for local clusters)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: default
+        namespace: metallb-system
+      spec:
+        # ipAddressPools: Reference to the pool we created
+        ipAddressPools:
+        - default-pool
+    kubeconfig: "{{ kubeconfig_path }}"
+  # Without this, MetalLB won't actually use the IP pool
+
+# ----------------------------------------------------------------------------
+# Task 7: Display success message
+# ----------------------------------------------------------------------------
+- name: Display MetalLB installation status
+  # DEBUG MODULE: Prints messages during playbook execution
+  debug:
+    msg: >
+      ✅ MetalLB installed successfully on {{ cluster }}!
+      IP Pool: 172.18.0.100-172.18.0.200
+      Namespace: metallb-system
+      LoadBalancer services can now get external IPs
+
+# ============================================================================
+# WHAT HAPPENS WHEN THIS ROLE RUNS:
+# ============================================================================
+# 
+# 1. Creates metallb-system namespace
+# 2. Installs MetalLB using Helm
+# 3. Waits for MetalLB pods to be ready
+# 4. Creates IPAddressPool (defines available IPs)
+# 5. Creates L2Advertisement (enables the IP pool)
+# 6. Shows success message
+#
+# RESULT: Kubernetes LoadBalancer services will now get external IPs
+#         assigned from the 172.18.0.100-172.18.0.200 range
+#
+# ============================================================================
