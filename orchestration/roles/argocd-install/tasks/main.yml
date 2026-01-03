@@ -1,0 +1,213 @@
+---
+# ============================================================================
+# Tasks for argocd-install Role
+# ============================================================================
+# 
+# This role installs and configures ArgoCD on a Kubernetes cluster.
+# ArgoCD is a GitOps continuous delivery tool that manages application state
+# declaratively using Git repositories.
+#
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Task 1: Create ArgoCD namespace
+# ----------------------------------------------------------------------------
+- name: Create ArgoCD namespace
+  # KUBERNETES.CORE.K8S MODULE: Manages Kubernetes resources
+  # This creates a namespace where ArgoCD will be installed
+  kubernetes.core.k8s:
+    name: argocd
+    api_version: v1
+    kind: Namespace
+    state: present
+    # kubeconfig: Path to the cluster's kubeconfig file
+    # This comes from site.yml as a variable
+    kubeconfig: "{{ kubeconfig_path }}"
+  # state: present means "ensure it exists" - idempotent!
+  # If namespace exists, does nothing. If missing, creates it.
+
+# ----------------------------------------------------------------------------
+# Task 2: Install ArgoCD using Helm
+# ----------------------------------------------------------------------------
+- name: Install ArgoCD using Helm
+  # KUBERNETES.CORE.HELM MODULE: Installs Helm charts
+  # Helm is a package manager for Kubernetes (like apt/yum for Linux)
+  kubernetes.core.helm:
+    name: argocd
+    # repo_url: Helm repository URL where ArgoCD chart is hosted
+    repo_url: https://argoproj.github.io/argo-helm
+    # chart_ref: Chart name in format repo/chart
+    chart_ref: argo-cd/argo-cd
+    # release_namespace: Where to install the chart
+    release_namespace: argocd
+    # kubeconfig: Path to cluster's kubeconfig
+    kubeconfig: "{{ kubeconfig_path }}"
+    # create_namespace: false because we created it manually in Task 1
+    create_namespace: false
+    # values: Custom values to configure ArgoCD
+    # We set server.service.type to LoadBalancer so it gets an external IP
+    values:
+      server:
+        service:
+          type: LoadBalancer
+  # This will download and install ArgoCD from the Helm repository
+
+# ----------------------------------------------------------------------------
+# Task 3: Wait for ArgoCD server to be ready
+# ----------------------------------------------------------------------------
+- name: Wait for ArgoCD server to be ready
+  # KUBERNETES.CORE.K8S_INFO MODULE: Queries Kubernetes resources
+  # We use this to check if ArgoCD server pod is running
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: argocd
+    # label_selectors: Find pods with these labels
+    # ArgoCD server pods have these labels
+    label_selectors:
+      - app.kubernetes.io/name=argocd-server
+    kubeconfig: "{{ kubeconfig_path }}"
+  # REGISTER: Save the result to a variable
+  register: argocd_server
+  # UNTIL: Keep retrying until this condition is true
+  # We check if pods exist and are running
+  until: >
+    argocd_server.resources | length > 0 and
+    argocd_server.resources[0].status.phase == "Running"
+  # RETRIES: Maximum number of attempts (30 * 5 = 150 seconds max)
+  retries: 30
+  # DELAY: Wait 5 seconds between retries
+  delay: 5
+  # IGNORE_ERRORS: Don't fail if query errors (pods might not exist yet)
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 4: Wait for ArgoCD application-controller to be ready
+# ----------------------------------------------------------------------------
+- name: Wait for ArgoCD application-controller to be ready
+  # Similar to server, but for application-controller pods
+  # Application-controller manages application state and syncs
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: argocd
+    label_selectors:
+      - app.kubernetes.io/name=argocd-application-controller
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: argocd_controller
+  until: >
+    argocd_controller.resources | length > 0 and
+    argocd_controller.resources[0].status.phase == "Running"
+  retries: 30
+  delay: 5
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 5: Wait for ArgoCD repo-server to be ready
+# ----------------------------------------------------------------------------
+- name: Wait for ArgoCD repo-server to be ready
+  # Repo-server fetches and caches Git repositories
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: argocd
+    label_selectors:
+      - app.kubernetes.io/name=argocd-repo-server
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: argocd_repo_server
+  until: >
+    argocd_repo_server.resources | length > 0 and
+    argocd_repo_server.resources[0].status.phase == "Running"
+  retries: 30
+  delay: 5
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 6: Get ArgoCD admin password
+# ----------------------------------------------------------------------------
+- name: Get ArgoCD admin password
+  # KUBERNETES.CORE.K8S_INFO MODULE: Queries Kubernetes secrets
+  # ArgoCD creates an initial admin password in a secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: argocd
+    name: argocd-initial-admin-secret
+    kubeconfig: "{{ kubeconfig_path }}"
+  # REGISTER: Save the secret data
+  register: argocd_secret
+  # IGNORE_ERRORS: Don't fail if secret doesn't exist yet (might take time)
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 7: Extract and decode admin password
+# ----------------------------------------------------------------------------
+- name: Extract and decode admin password
+  # SET_FACT MODULE: Sets a variable for use in later tasks
+  # We decode the base64-encoded password from the secret
+  set_fact:
+    argocd_admin_password: "{{ argocd_secret.resources[0].data.password | b64decode }}"
+  # WHEN: Only run if we successfully got the secret
+  when: >
+    argocd_secret.resources | length > 0 and
+    argocd_secret.resources[0].data is defined and
+    argocd_secret.resources[0].data.password is defined
+
+# ----------------------------------------------------------------------------
+# Task 8: Get ArgoCD server service external IP
+# ----------------------------------------------------------------------------
+- name: Get ArgoCD server service external IP
+  # KUBERNETES.CORE.K8S_INFO MODULE: Queries the LoadBalancer service
+  # We need to get the external IP assigned by MetalLB
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    namespace: argocd
+    name: argocd-server
+    kubeconfig: "{{ kubeconfig_path }}"
+  register: argocd_service
+  # IGNORE_ERRORS: Don't fail if service doesn't have external IP yet
+  ignore_errors: yes
+
+# ----------------------------------------------------------------------------
+# Task 9: Display ArgoCD installation status
+# ----------------------------------------------------------------------------
+- name: Display ArgoCD installation status
+  # DEBUG MODULE: Prints messages during playbook execution
+  debug:
+    msg: |
+      ✅ ArgoCD installed successfully on {{ cluster }}!
+      Namespace: argocd
+      {% if argocd_service.resources | length > 0 and argocd_service.resources[0].status.loadBalancer.ingress is defined and argocd_service.resources[0].status.loadBalancer.ingress | length > 0 %}
+      External IP: {{ argocd_service.resources[0].status.loadBalancer.ingress[0].ip }}
+      Access ArgoCD UI: http://{{ argocd_service.resources[0].status.loadBalancer.ingress[0].ip }}:80
+      {% else %}
+      External IP: Pending (MetalLB is assigning IP)...
+      Access ArgoCD UI: Use port-forward (see command below)
+      {% endif %}
+      {% if argocd_admin_password is defined %}
+      Admin Username: admin
+      Admin Password: {{ argocd_admin_password }}
+      {% else %}
+      Admin Password: Check secret 'argocd-initial-admin-secret' in argocd namespace
+      {% endif %}
+      Or use port-forward: kubectl port-forward svc/argocd-server -n argocd 8080:443 --context k3d-{{ cluster }}
+  # Note: The Jinja2 {% if %} blocks above work in Ansible's debug msg field
+  # because Ansible uses Jinja2 as its templating engine
+
+# ============================================================================
+# WHAT HAPPENS WHEN THIS ROLE RUNS:
+# ============================================================================
+# 
+# 1. Creates argocd namespace
+# 2. Installs ArgoCD using Helm chart from argo-helm repository
+# 3. Waits for ArgoCD components to be ready (server, controller, repo-server)
+# 4. Retrieves the admin password from Kubernetes secret
+# 5. Gets the external IP from the LoadBalancer service
+# 6. Displays installation status with access information
+#
+# RESULT: ArgoCD is ready to manage applications via GitOps
+#         Access the UI using the external IP or port-forward
+#
+# ============================================================================
+
