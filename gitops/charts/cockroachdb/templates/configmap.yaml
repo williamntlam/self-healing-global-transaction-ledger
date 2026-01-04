@@ -1,0 +1,12 @@
+{{- if .Values.init.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cockroachdb.fullname" . }}-init
+  labels:
+    {{- include "cockroachdb.labels" . | nindent 4 }}
+data:
+  init.sql: |
+{{ .Values.init.script | indent 4 }}
+{{- end }}
+

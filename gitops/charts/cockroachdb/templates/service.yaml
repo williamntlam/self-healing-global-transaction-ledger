@@ -1,0 +1,47 @@
+---
+# Service for internal cluster communication
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cockroachdb.fullname" . }}
+  labels:
+    {{- include "cockroachdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+  - port: {{ .Values.service.grpcPort }}
+    targetPort: grpc
+    protocol: TCP
+    name: grpc
+  - port: {{ .Values.service.httpPort }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "cockroachdb.selectorLabels" . | nindent 4 }}
+---
+# Public service for external access (LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cockroachdb.fullname" . }}-public
+  labels:
+    {{- include "cockroachdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+    service-type: public
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.grpcPort }}
+    targetPort: grpc
+    protocol: TCP
+    name: grpc
+  - port: {{ .Values.service.httpPort }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "cockroachdb.selectorLabels" . | nindent 4 }}
+

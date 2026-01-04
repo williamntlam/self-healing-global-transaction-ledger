@@ -1,0 +1,109 @@
+# ============================================================================
+# CockroachDB Helm Chart Values
+# ============================================================================
+# 
+# This file contains default values for the CockroachDB Helm chart.
+# Override these values when deploying to different regions or environments.
+#
+# ============================================================================
+
+# Image configuration
+image:
+  repository: cockroachdb/cockroach
+  tag: "23.1.0"
+  pullPolicy: IfNotPresent
+
+# StatefulSet configuration
+statefulset:
+  replicas: 3
+  # Service account for CockroachDB pods
+  serviceAccount:
+    create: true
+    name: cockroachdb
+
+# CockroachDB configuration
+conf:
+  # Cache size for CockroachDB
+  cache: "256MiB"
+  # Maximum SQL memory
+  max-sql-memory: "256MiB"
+  # Join addresses (will be auto-generated based on replicas)
+  # Format: cockroachdb-0.cockroachdb,cockroachdb-1.cockroachdb,...
+  # This is auto-generated in the StatefulSet template
+
+# Storage configuration
+storage:
+  persistentVolume:
+    size: 10Gi
+    storageClass: ""  # Use default storage class if empty
+    accessModes:
+      - ReadWriteOnce
+
+# Service configuration
+service:
+  # Service type: ClusterIP, NodePort, or LoadBalancer
+  type: LoadBalancer
+  # Port for gRPC (SQL connections)
+  grpcPort: 26257
+  # Port for HTTP (Admin UI)
+  httpPort: 8080
+
+# Region configuration (for multi-region setup)
+region:
+  # Region identifier (e.g., us-east-1, eu-central-1)
+  name: "us-east-1"
+  # Locality for CockroachDB (used in --locality flag)
+  locality: "region=us-east-1"
+
+# Database initialization
+init:
+  # Whether to run initialization SQL
+  enabled: true
+  # Database name to create
+  database: "ledger"
+  # SQL script to run (stored in ConfigMap)
+  script: |
+    -- Initialize database with multi-region configuration
+    CREATE DATABASE IF NOT EXISTS ledger;
+    
+    USE ledger;
+    
+    -- Create transactions table with regional locality
+    CREATE TABLE IF NOT EXISTS transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        region STRING NOT NULL,
+        amount DECIMAL(19,2) NOT NULL,
+        from_account STRING NOT NULL,
+        to_account STRING NOT NULL,
+        timestamp TIMESTAMP DEFAULT now(),
+        status STRING DEFAULT 'pending'
+    ) LOCALITY REGIONAL BY ROW AS region;
+    
+    -- Set survival goals (survive region failure)
+    ALTER DATABASE ledger SURVIVE REGION FAILURE;
+    
+    -- Create indexes
+    CREATE INDEX IF NOT EXISTS idx_timestamp ON transactions(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_status ON transactions(status);
+    CREATE INDEX IF NOT EXISTS idx_region ON transactions(region);
+
+# Resource limits and requests
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "2000m"
+    memory: "1Gi"
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2  # At least 2 pods must be available
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+

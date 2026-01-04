@@ -1,0 +1,89 @@
+---
+# ============================================================================
+# Tasks for secrets-config Role
+# ============================================================================
+# 
+# This role creates Kubernetes secrets for the ledger application.
+# Secrets should NOT be committed to Git - use Ansible Vault or external secret management.
+#
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Task 1: Create namespace for application secrets (if needed)
+# ----------------------------------------------------------------------------
+- name: Create namespace for application
+  kubernetes.core.k8s:
+    name: "{{ app_namespace | default('default') }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ kubeconfig_path }}"
+  when: app_namespace is defined
+
+# ----------------------------------------------------------------------------
+# Task 2: Create CockroachDB credentials secret
+# ----------------------------------------------------------------------------
+- name: Create CockroachDB credentials secret
+  # KUBERNETES.CORE.K8S MODULE: Creates a Kubernetes Secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cockroachdb-credentials
+        namespace: "{{ app_namespace | default('default') }}"
+      type: Opaque
+      # data: Base64-encoded values
+      # In production, use Ansible Vault to encrypt these values
+      data:
+        username: "{{ cockroachdb_username | b64encode }}"
+        password: "{{ cockroachdb_password | b64encode }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+  # WHEN: Only create if credentials are provided
+  when: cockroachdb_username is defined and cockroachdb_password is defined
+
+# ----------------------------------------------------------------------------
+# Task 3: Create AWS credentials secret
+# ----------------------------------------------------------------------------
+- name: Create AWS credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: aws-credentials
+        namespace: "{{ app_namespace | default('default') }}"
+      type: Opaque
+      data:
+        # For LocalStack, these are test credentials
+        # In production, use real AWS credentials from Ansible Vault
+        # Note: Kubernetes secrets require base64-encoded values
+        access-key-id: "{{ (aws_access_key_id | default('test')) | b64encode }}"
+        secret-access-key: "{{ (aws_secret_access_key | default('test')) | b64encode }}"
+        region: "{{ (aws_region | default('us-east-1')) | b64encode }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+
+# ----------------------------------------------------------------------------
+# Task 4: Display secret creation status
+# ----------------------------------------------------------------------------
+- name: Display secret creation status
+  debug:
+    msg: >
+      ✅ Secrets created successfully on {{ cluster }}!
+      Namespace: {{ app_namespace | default('default') }}
+      Secrets: cockroachdb-credentials, aws-credentials
+      Note: In production, use Ansible Vault to encrypt sensitive values
+
+# ============================================================================
+# SECURITY BEST PRACTICES:
+# ============================================================================
+# 
+# 1. NEVER commit secrets to Git in plain text
+# 2. Use Ansible Vault to encrypt sensitive variables:
+#    ansible-vault encrypt_string 'my-password' --name 'cockroachdb_password'
+# 3. Store vault password in a secure location (not in Git)
+# 4. Use external secret management (HashiCorp Vault, AWS Secrets Manager)
+# 5. Rotate secrets regularly
+#
+# ============================================================================
+

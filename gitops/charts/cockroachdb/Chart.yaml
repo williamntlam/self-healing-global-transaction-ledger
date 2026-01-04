@@ -1,0 +1,7 @@
+apiVersion: v2
+name: cockroachdb
+description: CockroachDB Multi-Region Distributed SQL Database
+type: application
+version: 0.1.0
+appVersion: "23.1.0"
+

@@ -1,0 +1,52 @@
+{{- if .Values.init.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cockroachdb.fullname" . }}-init
+  labels:
+    {{- include "cockroachdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "cockroachdb.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "cockroachdb.serviceAccountName" . }}
+      containers:
+      - name: init
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Waiting for CockroachDB to be ready..."
+          
+          # Wait for at least one pod to be ready
+          for i in {1..60}; do
+            if /cockroach/cockroach sql --insecure --host={{ include "cockroachdb.fullname" . }}-0.{{ include "cockroachdb.fullname" . }}:{{ .Values.service.grpcPort }} -e "SELECT 1" > /dev/null 2>&1; then
+              echo "CockroachDB is ready!"
+              break
+            fi
+            echo "Waiting for CockroachDB... ($i/60)"
+            sleep 2
+          done
+          
+          # Run initialization script
+          echo "Running initialization script..."
+          /cockroach/cockroach sql --insecure --host={{ include "cockroachdb.fullname" . }}-0.{{ include "cockroachdb.fullname" . }}:{{ .Values.service.grpcPort }} < /init/init.sql
+          
+          echo "Initialization complete!"
+        volumeMounts:
+        - name: init-script
+          mountPath: /init
+      volumes:
+      - name: init-script
+        configMap:
+          name: {{ include "cockroachdb.fullname" . }}-init
+{{- end }}
+

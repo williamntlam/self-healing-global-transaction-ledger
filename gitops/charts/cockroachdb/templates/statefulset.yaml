@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "cockroachdb.fullname" . }}
+  labels:
+    {{- include "cockroachdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  serviceName: {{ include "cockroachdb.fullname" . }}
+  replicas: {{ .Values.statefulset.replicas }}
+  selector:
+    matchLabels:
+      {{- include "cockroachdb.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cockroachdb.selectorLabels" . | nindent 8 }}
+        region: {{ .Values.region.name }}
+    spec:
+      serviceAccountName: {{ include "cockroachdb.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+      - name: cockroachdb
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.grpcPort }}
+          name: grpc
+          protocol: TCP
+        - containerPort: {{ .Values.service.httpPort }}
+          name: http
+          protocol: TCP
+        command:
+        - /cockroach/cockroach
+        - start
+        - --join
+        - {{ include "cockroachdb.joinAddresses" . }}
+        - --advertise-addr
+        - $(POD_NAME).{{ include "cockroachdb.fullname" . }}
+        - --http-addr
+        - 0.0.0.0:{{ .Values.service.httpPort }}
+        - --cache={{ .Values.conf.cache }}
+        - --max-sql-memory={{ .Values.conf.max-sql-memory }}
+        - --locality={{ .Values.region.locality }}
+        - --insecure
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: COCKROACH_CHANNEL
+          value: "kubernetes-helm"
+        volumeMounts:
+        - name: datadir
+          mountPath: /cockroach/cockroach-data
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health?ready=1
+            port: {{ .Values.service.httpPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health?ready=1
+            port: {{ .Values.service.httpPort }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+  volumeClaimTemplates:
+  - metadata:
+      name: datadir
+    spec:
+      accessModes:
+        {{- toYaml .Values.storage.persistentVolume.accessModes | nindent 8 }}
+      {{- if .Values.storage.persistentVolume.storageClass }}
+      storageClassName: {{ .Values.storage.persistentVolume.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.persistentVolume.size }}
+
