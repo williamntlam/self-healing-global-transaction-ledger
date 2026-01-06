@@ -1,0 +1,95 @@
+# ============================================================================
+# Ledger App Helm Chart Values
+# ============================================================================
+# 
+# This file contains default values for the Ledger App Helm chart.
+# Override these values when deploying to different regions or environments.
+#
+# ============================================================================
+
+# Region configuration
+region:
+  # Region identifier (e.g., us-east-1, eu-central-1)
+  name: "us-east-1"
+  # AWS region for LocalStack endpoint
+  awsRegion: "us-east-1"
+
+# Image configuration
+image:
+  repository: ledger-app
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Deployment configuration
+replicas: 2
+
+# Service configuration
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8080
+
+# CockroachDB configuration
+cockroachdb:
+  # Service name (should match CockroachDB service name)
+  host: "cockroachdb-public"
+  port: 26257
+  # Database name
+  database: "ledger"
+  # Connection timeout (seconds)
+  timeout: 30
+
+# AWS/LocalStack configuration
+aws:
+  # LocalStack endpoint URL
+  endpoint: "http://localhost:4566"
+  # S3 bucket name for audit logs (from Terraform output)
+  s3Bucket: "us-east-1-audit-logs"
+  # SQS queue name for transactions (from Terraform output)
+  sqsQueue: "us-east-1-transaction-queue"
+  # Use secrets for credentials (from secrets-config role)
+  useSecrets: true
+  # Secret name containing AWS credentials
+  secretName: "aws-credentials"
+  # Secret keys
+  secretKeys:
+    accessKeyId: "access-key-id"
+    secretAccessKey: "secret-access-key"
+    region: "region"
+
+# Application configuration
+app:
+  # Application port
+  port: 8080
+  # Health check endpoint
+  healthPath: "/health"
+  # Readiness check endpoint
+  readinessPath: "/ready"
+  # Log level
+  logLevel: "info"
+
+# Resource limits and requests
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Service account
+serviceAccount:
+  create: true
+  name: "ledger-app"
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1  # At least 1 pod must be available
+

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ledger-app.fullname" . }}
+  labels:
+    {{- include "ledger-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application
+    region: {{ .Values.region.name }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: {{ .Values.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "ledger-app.selectorLabels" . | nindent 4 }}
+    region: {{ .Values.region.name }}
+
