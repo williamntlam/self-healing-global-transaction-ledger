@@ -6,17 +6,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // Transaction represents a financial transaction in the ledger
 type Transaction struct {
-	ID          uuid.UUID `json:"id" db:"id"`
-	Region      string    `json:"region" db:"region"`
-	Amount      string    `json:"amount" db:"amount"`
-	FromAccount string    `json:"from_account" db:"from_account"`
-	ToAccount   string    `json:"to_account" db:"to_account"`
-	Status      string    `json:"status" db:"status"`
-	Timestamp   time.Time `json:"timestamp" db:"timestamp"`
+	ID          uuid.UUID       `json:"id" db:"id"`
+	Region      string          `json:"region" db:"region"`
+	Amount      decimal.Decimal `json:"amount" db:"amount"`
+	FromAccount string          `json:"from_account" db:"from_account"`
+	ToAccount   string          `json:"to_account" db:"to_account"`
+	Status      string          `json:"status" db:"status"`
+	Timestamp   time.Time       `json:"timestamp" db:"timestamp"`
 }
 
 // TransactionRequest represents an incoming transaction request
@@ -49,6 +50,16 @@ func (a *AuditLog) ToJSON() (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// ParseAmount parses a string amount into a decimal.Decimal
+// Validates that the amount is a valid decimal number
+func ParseAmount(amountStr string) (decimal.Decimal, error) {
+	amount, err := decimal.NewFromString(amountStr)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return amount, nil
 }
 
 // UUIDArray is a custom type for PostgreSQL UUID arrays

@@ -13,6 +13,7 @@ import (
 	"github.com/project-atlas/ledger-app/internal/models"
 	"github.com/project-atlas/ledger-app/internal/s3"
 	"github.com/project-atlas/ledger-app/internal/sqs"
+	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
 
@@ -50,11 +51,24 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse and validate amount
+	amount, err := models.ParseAmount(req.Amount)
+	if err != nil {
+		h.respondError(w, http.StatusBadRequest, "Invalid amount format", err)
+		return
+	}
+
+	// Validate amount is positive
+	if amount.LessThanOrEqual(decimal.Zero) {
+		h.respondError(w, http.StatusBadRequest, "Amount must be greater than zero", nil)
+		return
+	}
+
 	// Create transaction
 	tx := &models.Transaction{
 		ID:          uuid.New(),
 		Region:      h.region,
-		Amount:      req.Amount,
+		Amount:      amount,
 		FromAccount: req.FromAccount,
 		ToAccount:   req.ToAccount,
 		Status:      "pending",

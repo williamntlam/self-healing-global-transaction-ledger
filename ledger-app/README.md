@@ -98,13 +98,15 @@ The application expects the following table structure in CockroachDB:
 CREATE TABLE transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     region STRING NOT NULL,
-    amount STRING NOT NULL,
+    amount DECIMAL(19,2) NOT NULL,
     from_account STRING NOT NULL,
     to_account STRING NOT NULL,
     status STRING DEFAULT 'pending',
     timestamp TIMESTAMP DEFAULT now()
 ) LOCALITY REGIONAL BY ROW AS region;
 ```
+
+**Note:** The `amount` field uses `DECIMAL(19,2)` for precise financial calculations. The Go application uses the `shopspring/decimal` library which automatically handles conversion to/from the database.
 
 ## Architecture
 
