@@ -63,15 +63,44 @@ Create the name of the service account to use
 
 {{/*
 Generate join addresses for CockroachDB
-Format: cockroachdb-0.cockroachdb,cockroachdb-1.cockroachdb,...
+For multi-region: includes both local and remote region nodes
+Format: local-0.local,local-1.local,remote-0.remote:26257,...
 */}}
 {{- define "cockroachdb.joinAddresses" -}}
 {{- $replicas := .Values.statefulset.replicas | int }}
 {{- $name := include "cockroachdb.fullname" . }}
 {{- $addresses := list }}
+{{- $region := .Values.region.name }}
+{{- $remoteRegion := .Values.region.remoteRegion | default "" }}
+{{- $remoteJoinAddresses := .Values.region.remoteJoinAddresses | default "" }}
+{{- $useLoadBalancer := .Values.region.useLoadBalancerForJoin | default false }}
+{{- $serviceName := include "cockroachdb.fullname" . }}
+
+{{- /* Add local region nodes */}}
 {{- range $i := until $replicas }}
-  {{- $addresses = append $addresses (printf "%s-%d.%s" $name $i $name) }}
+  {{- if $useLoadBalancer }}
+    {{- /* Use LoadBalancer service for cross-cluster communication */}}
+    {{- $addresses = append $addresses (printf "%s.%s.svc.cluster.local:26257" $serviceName (include "cockroachdb.namespace" .)) }}
+  {{- else }}
+    {{- /* Use pod DNS for same-cluster communication */}}
+    {{- $addresses = append $addresses (printf "%s-%d.%s:26257" $name $i $name) }}
+  {{- end }}
 {{- end }}
+
+{{- /* Add remote region nodes if configured */}}
+{{- if $remoteJoinAddresses }}
+  {{- $remoteAddresses := splitList "," $remoteJoinAddresses }}
+  {{- range $addr := $remoteAddresses }}
+    {{- $addresses = append $addresses (trim $addr) }}
+  {{- end }}
+{{- end }}
+
 {{- join "," $addresses }}
 {{- end }}
 
+{{/*
+Get namespace (defaults to release namespace)
+*/}}
+{{- define "cockroachdb.namespace" -}}
+{{- .Release.Namespace | default "default" }}
+{{- end }}

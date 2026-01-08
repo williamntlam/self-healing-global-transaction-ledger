@@ -54,6 +54,16 @@ region:
   name: "us-east-1"
   # Locality for CockroachDB (used in --locality flag)
   locality: "region=us-east-1"
+  # Remote region configuration (for unified cluster)
+  # Set this to connect to another region's nodes
+  remoteRegion: ""  # e.g., "eu-central-1"
+  # Remote region join addresses (comma-separated)
+  # Format: "cockroachdb-0.cockroachdb-public.default.svc.cluster.local:26257,cockroachdb-1.cockroachdb-public.default.svc.cluster.local:26257"
+  # Or use LoadBalancer IPs: "192.168.1.10:26257,192.168.1.11:26257"
+  remoteJoinAddresses: ""
+  # Use LoadBalancer service for cross-cluster communication
+  # Set to true if clusters are in separate k3d clusters
+  useLoadBalancerForJoin: false
 
 # Database initialization
 init:

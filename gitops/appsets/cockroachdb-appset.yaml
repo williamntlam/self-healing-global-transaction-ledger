@@ -13,10 +13,22 @@ spec:
         url: https://kubernetes.default.svc
         region: us-east-1
         locality: "region=us-east-1"
+        remoteRegion: eu-central-1
+        # EU cluster join addresses - update after EU deployment
+        # Get EU LoadBalancer IP: kubectl --context k3d-dc-eu get svc cockroachdb-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        # Format: "192.168.1.20:26257" (single LoadBalancer IP, CockroachDB will route internally)
+        remoteJoinAddresses: ""  # Run ./scripts/setup-cockroachdb-cluster.sh to auto-configure
+        useLoadBalancerForJoin: true
       - cluster: k3d-dc-eu
         url: https://kubernetes.default.svc
         region: eu-central-1
         locality: "region=eu-central-1"
+        remoteRegion: us-east-1
+        # US cluster join addresses - update after US deployment
+        # Get US LoadBalancer IP: kubectl --context k3d-dc-us get svc cockroachdb-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        # Format: "192.168.1.10:26257" (single LoadBalancer IP, CockroachDB will route internally)
+        remoteJoinAddresses: ""  # Run ./scripts/setup-cockroachdb-cluster.sh to auto-configure
+        useLoadBalancerForJoin: true
   
   template:
     metadata:
@@ -37,6 +49,9 @@ spec:
             region:
               name: {{region}}
               locality: {{locality}}
+              remoteRegion: {{remoteRegion}}
+              remoteJoinAddresses: {{remoteJoinAddresses}}
+              useLoadBalancerForJoin: {{useLoadBalancerForJoin}}
             storage:
               persistentVolume:
                 size: 10Gi

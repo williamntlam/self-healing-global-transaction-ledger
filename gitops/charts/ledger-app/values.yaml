@@ -25,9 +25,15 @@ replicas: 2
 
 # Service configuration
 service:
-  type: LoadBalancer
+  # US: ClusterIP (internal, accessed by global LB in same cluster)
+  # EU: LoadBalancer (needed for cross-cluster access from global LB)
+  type: ClusterIP  # Default to ClusterIP, override in ApplicationSet for EU
   port: 80
   targetPort: 8080
+
+# Network Policy configuration
+networkPolicy:
+  enabled: true  # Restrict access to only global load balancer
 
 # CockroachDB configuration
 cockroachdb:

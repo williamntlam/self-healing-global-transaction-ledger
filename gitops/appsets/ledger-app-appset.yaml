@@ -16,6 +16,7 @@ spec:
         endpoint: http://localhost:4566
         s3Bucket: us-east-1-audit-logs
         sqsQueue: us-east-1-transaction-queue
+        serviceType: LoadBalancer  # LoadBalancer for cross-cluster access (protected by NetworkPolicy)
       - cluster: k3d-dc-eu
         url: https://kubernetes.default.svc
         region: eu-central-1
@@ -23,6 +24,7 @@ spec:
         endpoint: http://localhost:4567
         s3Bucket: eu-central-1-audit-logs
         sqsQueue: eu-central-1-transaction-queue
+        serviceType: LoadBalancer  # LoadBalancer for cross-cluster access (protected by NetworkPolicy)
   
   template:
     metadata:
@@ -53,7 +55,11 @@ spec:
               database: ledger
             replicas: 2
             service:
-              type: LoadBalancer
+              # US: ClusterIP (internal, accessed by global LB in same cluster)
+              # EU: LoadBalancer (needed for cross-cluster access from global LB)
+              type: {{serviceType | default "ClusterIP"}}
+            networkPolicy:
+              enabled: true  # Restrict access to only global load balancer
       destination:
         server: '{{url}}'
         namespace: default

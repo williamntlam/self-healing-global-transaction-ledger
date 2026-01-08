@@ -6,6 +6,7 @@ This directory contains ArgoCD ApplicationSets that deploy applications to multi
 
 ### 1. `cockroachdb-appset.yaml`
 Deploys CockroachDB to both `dc-us` and `dc-eu` clusters with region-specific configuration.
+**Now configured for unified cluster** - both regions form one CockroachDB cluster.
 
 ### 2. `ledger-app-appset.yaml`
 Deploys the Ledger App to both `dc-us` and `dc-eu` clusters with region-specific AWS endpoints and configurations.
@@ -14,6 +15,98 @@ Deploys the Ledger App to both `dc-us` and `dc-eu` clusters with region-specific
 Deploys a Global Load Balancer that provides **automatic failover** between regions.
 
 **Key Feature**: If one region goes down, requests automatically route to the healthy region.
+
+## CockroachDB Unified Cluster Setup
+
+The CockroachDB clusters in US and EU are now configured to form **one unified database cluster**.
+
+### How It Works
+
+1. **US Cluster**: 3 nodes with locality `region=us-east-1`
+2. **EU Cluster**: 3 nodes with locality `region=eu-central-1`
+3. **Unified Cluster**: All 6 nodes join together to form one CockroachDB cluster
+4. **Data Partitioning**: Data is partitioned by region (`REGIONAL BY ROW`)
+5. **Cross-Region Access**: Both regions can read/write all data
+
+### Setup Steps
+
+#### Step 1: Deploy Initial Cluster (US)
+
+```bash
+# Deploy US cluster first (without remote join addresses)
+kubectl --context k3d-dc-us apply -f gitops/appsets/cockroachdb-appset.yaml
+```
+
+#### Step 2: Get US Cluster Endpoint
+
+```bash
+# Get US LoadBalancer IP
+US_IP=$(kubectl --context k3d-dc-us get svc cockroachdb-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "US IP: $US_IP"
+```
+
+#### Step 3: Deploy EU Cluster with US Endpoint
+
+```bash
+# Update ApplicationSet with US endpoint, then deploy EU
+# Or use the helper script:
+./scripts/setup-cockroachdb-cluster.sh
+```
+
+#### Step 4: Update US Cluster with EU Endpoint
+
+After EU is deployed, update US cluster to include EU endpoints:
+
+```bash
+# Get EU LoadBalancer IP
+EU_IP=$(kubectl --context k3d-dc-eu get svc cockroachdb-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+# Update ApplicationSet manually or use the helper script
+./scripts/setup-cockroachdb-cluster.sh
+```
+
+### Automated Setup Script
+
+Use the helper script to automatically discover and configure endpoints:
+
+```bash
+./scripts/setup-cockroachdb-cluster.sh
+```
+
+This script:
+1. Discovers LoadBalancer IPs for both clusters
+2. Updates the ApplicationSet with correct join addresses
+3. Provides instructions for applying changes
+
+### Verify Unified Cluster
+
+```bash
+# Connect to US cluster
+kubectl --context k3d-dc-us exec -it cockroachdb-0 -- cockroach sql --insecure
+
+# Check cluster nodes (should show 6 nodes: 3 US + 3 EU)
+SHOW CLUSTER SETTING cluster.organization;
+
+# Check regions
+SHOW REGIONS;
+
+# Check nodes
+SHOW NODES;
+```
+
+### Troubleshooting
+
+**Issue**: Nodes can't connect to each other
+- **Solution**: Ensure LoadBalancer services are created and have external IPs
+- **Check**: `kubectl get svc cockroachdb-public -A`
+
+**Issue**: Only local nodes visible
+- **Solution**: Verify `remoteJoinAddresses` is set correctly in ApplicationSet
+- **Check**: `kubectl get application k3d-dc-us-cockroachdb -n argocd -o yaml`
+
+**Issue**: Cross-cluster network connectivity
+- **Solution**: Ensure k3d clusters are on the same Docker network
+- **Check**: `docker network ls` and verify clusters can ping each other
 
 ## Global Load Balancer Setup
 
@@ -72,67 +165,16 @@ Global Load Balancer (NGINX)
 1. **Normal**: Requests load balance between US-East and EU-Central
 2. **US fails**: NGINX detects failure → routes to EU-Central automatically
 3. **EU fails**: NGINX detects failure → routes to US-East automatically
-4. **Recovery**: When failed region recovers, traffic automatically returns to load balancing
+4. **Both up**: Load balances between both regions
 
-## Prerequisites
+## Applications Created
 
-1. **ArgoCD installed** on both clusters (via `argocd-install` Ansible role)
-2. **Helm charts ready** in `gitops/charts/`:
-   - `cockroachdb/` chart
-   - `ledger-app/` chart
-   - `global-lb/` chart ⭐ NEW
-3. **Git repository** (or local filesystem access for ArgoCD)
-4. **Both regions deployed** (ledger-app must be running in both clusters)
-
-## Usage
-
-### Option 1: Apply directly to ArgoCD (Local Development)
-
-If you're running locally and ArgoCD can access the filesystem:
-
-```bash
-# Apply to US-East cluster's ArgoCD
-kubectl --context k3d-dc-us apply -f cockroachdb-appset.yaml
-kubectl --context k3d-dc-us apply -f ledger-app-appset.yaml
-kubectl --context k3d-dc-us apply -f global-lb-appset.yaml  # ⭐ NEW
-
-# Apply to EU-Central cluster's ArgoCD
-kubectl --context k3d-dc-eu apply -f cockroachdb-appset.yaml
-kubectl --context k3d-dc-eu apply -f ledger-app-appset.yaml
-```
-
-### Option 2: Use Git Repository (Recommended for Production)
-
-1. **Push your GitOps repo to Git:**
-```bash
-git add .
-git commit -m "Add ApplicationSets"
-git push
-```
-
-2. **Update ApplicationSets to use Git repo:**
-```yaml
-# Change repoURL in ApplicationSets
-source:
-  repoURL: https://github.com/your-org/your-gitops-repo  # ← Your Git repo
-  targetRevision: main
-  path: charts/cockroachdb
-```
-
-3. **Apply ApplicationSets:**
-```bash
-kubectl --context k3d-dc-us apply -f cockroachdb-appset.yaml
-kubectl --context k3d-dc-us apply -f ledger-app-appset.yaml
-kubectl --context k3d-dc-us apply -f global-lb-appset.yaml
-```
-
-## What Gets Created
-
-Each ApplicationSet automatically creates:
+Each ApplicationSet creates ArgoCD Applications for each cluster:
 
 ### CockroachDB ApplicationSet:
 - `k3d-dc-us-cockroachdb` Application → Deploys CockroachDB to US cluster
 - `k3d-dc-eu-cockroachdb` Application → Deploys CockroachDB to EU cluster
+- **Both clusters form one unified CockroachDB cluster** ⭐
 
 ### Ledger App ApplicationSet:
 - `k3d-dc-us-ledger-app` Application → Deploys Ledger App to US cluster
@@ -147,6 +189,7 @@ Each ApplicationSet automatically creates:
 ### CockroachDB:
 - **US-East**: `region=us-east-1`, `locality="region=us-east-1"`
 - **EU-Central**: `region=eu-central-1`, `locality="region=eu-central-1"`
+- **Unified Cluster**: Both regions join to form one cluster ⭐
 
 ### Ledger App:
 - **US-East**: 
@@ -179,8 +222,15 @@ kubectl --context k3d-dc-us get applications -n argocd
 ### Check Application sync status:
 ```bash
 kubectl --context k3d-dc-us get application k3d-dc-us-cockroachdb -n argocd
+kubectl --context k3d-dc-us get application k3d-dc-eu-cockroachdb -n argocd
 kubectl --context k3d-dc-us get application k3d-dc-us-ledger-app -n argocd
 kubectl --context k3d-dc-us get application k3d-dc-us-global-lb -n argocd  # ⭐ NEW
+```
+
+### Verify Unified CockroachDB Cluster:
+```bash
+# Should show 6 nodes (3 US + 3 EU)
+kubectl --context k3d-dc-us exec -it cockroachdb-0 -- cockroach node ls --insecure
 ```
 
 ### Test Automatic Failover: ⭐ NEW
@@ -199,51 +249,4 @@ sleep 10
 
 # Test - should automatically use EU region
 curl http://$GLOBAL_IP/health
-# ✅ Should still work - automatic failover!
 ```
-
-### View in ArgoCD UI:
-```bash
-# Get ArgoCD external IP
-kubectl --context k3d-dc-us get svc argocd-server -n argocd
-
-# Open in browser
-open http://<EXTERNAL_IP>:80
-```
-
-## Troubleshooting
-
-### Issue: ApplicationSet not creating Applications
-**Solution:** Check if ArgoCD can access the repository:
-```bash
-kubectl --context k3d-dc-us logs -n argocd -l app.kubernetes.io/name=argocd-applicationset-controller
-```
-
-### Issue: Applications stuck in "Unknown" or "Syncing"
-**Solution:** Check application logs:
-```bash
-kubectl --context k3d-dc-us describe application k3d-dc-us-cockroachdb -n argocd
-```
-
-### Issue: Global LB can't reach EU region
-**Solution:** 
-1. Ensure EU LoadBalancer IP is correct in ApplicationSet
-2. Check network connectivity between clusters
-3. Verify EU region service is accessible:
-   ```bash
-   kubectl --context k3d-dc-eu get svc ledger-app
-   ```
-
-### Issue: Repository not found
-**Solution:** For local development, you may need to:
-1. Use a Git repository instead of `file:///gitops`
-2. Or configure ArgoCD to access local filesystem
-3. Or mount the gitops directory into ArgoCD repo-server
-
-## Notes
-
-- **Local Development**: The `file:///gitops` repoURL works if ArgoCD repo-server has access to the filesystem
-- **Production**: Use a Git repository URL (GitHub, GitLab, etc.)
-- **Auto-sync**: All ApplicationSets have `automated: true` for automatic syncing
-- **Self-healing**: `selfHeal: true` ensures manual changes are reverted
-- **Automatic Failover**: Global LB provides HTTP-level failover between regions ⭐ NEW

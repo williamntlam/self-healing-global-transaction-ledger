@@ -7,13 +7,17 @@ metadata:
 data:
   nginx.conf: |
     upstream ledger_backend {
-        # US-East region (active - fails over to EU if down)
+        # US-East region
+        # High weight = prefer this region (when deployed in US)
+        # Low weight = backup region (when deployed in EU)
         server {{ .Values.upstreams.us-east-1.host }}:{{ .Values.upstreams.us-east-1.port }} 
                weight={{ .Values.upstreams.us-east-1.weight }} 
                max_fails={{ .Values.upstreams.us-east-1.maxFails }} 
                fail_timeout={{ .Values.upstreams.us-east-1.failTimeout }};
         
-        # EU-Central region (active - fails over to US if down)
+        # EU-Central region
+        # High weight = prefer this region (when deployed in EU)
+        # Low weight = backup region (when deployed in US)
         server {{ .Values.upstreams.eu-central-1.host }}:{{ .Values.upstreams.eu-central-1.port }} 
                weight={{ .Values.upstreams.eu-central-1.weight }} 
                max_fails={{ .Values.upstreams.eu-central-1.maxFails }} 

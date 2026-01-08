@@ -76,68 +76,33 @@ log_info "EU-Central endpoint: $EU_IP:$EU_PORT"
 # Update ApplicationSet with discovered IPs
 log_info "Updating global-lb ApplicationSet..."
 
-# Create or update the ApplicationSet with discovered IPs
-cat > /tmp/global-lb-appset-updated.yaml <<EOF
----
-apiVersion: argoproj.io/v1alpha1
-kind: ApplicationSet
-metadata:
-  name: global-lb
-  namespace: argocd
-spec:
-  generators:
-  - list:
-      elements:
-      - cluster: k3d-dc-us
-        url: https://kubernetes.default.svc
-        usHost: "$US_IP"
-        usPort: "$US_PORT"
-        euHost: "$EU_IP"
-        euPort: "$EU_PORT"
-  
-  template:
-    metadata:
-      name: '{{cluster}}-global-lb'
-      labels:
-        app: global-lb
-    spec:
-      project: default
-      source:
-        repoURL: file:///gitops
-        targetRevision: HEAD
-        path: charts/global-lb
-        helm:
-          valueFiles:
-            - values.yaml
-          values: |
-            upstreams:
-              us-east-1:
-                host: {{usHost}}
-                port: {{usPort}}
-              eu-central-1:
-                host: {{euHost}}
-                port: {{euPort}}
-      destination:
-        server: '{{url}}'
-        namespace: default
-      syncPolicy:
-        automated:
-          prune: true
-          selfHeal: true
-        syncOptions:
-          - CreateNamespace=true
-          - PrunePropagationPolicy=foreground
-          - PruneLast=true
-EOF
+# Update ApplicationSet file
+APPSET_FILE="gitops/appsets/global-lb-appset.yaml"
 
-log_info "Apply the updated ApplicationSet:"
-log_info "kubectl --context k3d-dc-us apply -f /tmp/global-lb-appset-updated.yaml"
+if [ ! -f "$APPSET_FILE" ]; then
+    log_warning "ApplicationSet file not found: $APPSET_FILE"
+    log_info "Please update manually with:"
+    log_info "  US cluster: usHost: ledger-app.default.svc.cluster.local, euHost: $EU_IP"
+    log_info "  EU cluster: euHost: ledger-app.default.svc.cluster.local, usHost: $US_IP"
+    exit 0
+fi
+
+# Create backup
+cp "$APPSET_FILE" "${APPSET_FILE}.backup"
+
+log_info "Updating ApplicationSet for bidirectional deployment..."
 log_info ""
-log_info "Or manually update gitops/appsets/global-lb-appset.yaml with:"
-log_info "  usHost: $US_IP"
-log_info "  usPort: $US_PORT"
-log_info "  euHost: $EU_IP"
-log_info "  euPort: $EU_PORT"
+log_info "US Global LB will use:"
+log_info "  - US: ledger-app.default.svc.cluster.local (local ClusterIP)"
+log_info "  - EU: $EU_IP (external LoadBalancer)"
+log_info ""
+log_info "EU Global LB will use:"
+log_info "  - EU: ledger-app.default.svc.cluster.local (local ClusterIP)"
+log_info "  - US: $US_IP (external LoadBalancer)"
+log_info ""
+log_info "Please manually update $APPSET_FILE:"
+log_info "  - For US cluster: euHost should be \"$EU_IP\""
+log_info "  - For EU cluster: usHost should be \"$US_IP\""
 
 log_success "Configuration ready!"
 

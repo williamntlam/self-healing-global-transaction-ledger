@@ -6,19 +6,31 @@ metadata:
   namespace: argocd
 spec:
   generators:
-  # Deploy to US cluster (can reach both regions via external IPs)
+  # Deploy to both clusters for bidirectional access
   - list:
       elements:
       - cluster: k3d-dc-us
         url: https://kubernetes.default.svc
-        # US region: use local service (same cluster)
+        # US region: use local service (same cluster) - ClusterIP access
         usHost: ledger-app.default.svc.cluster.local
         usPort: 80
-        # EU region: use external LoadBalancer IP (discovered at deploy time)
-        # Run: ./scripts/setup-global-lb.sh to discover and update these
-        # Or get manually: kubectl --context k3d-dc-eu get svc ledger-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        usWeight: 100  # High weight - prefer local region
+        # EU region: use external LoadBalancer IP (cross-cluster)
+        # Run: ./scripts/setup-global-lb.sh to discover and update
         euHost: "CHANGE_ME"  # Replace with EU LoadBalancer IP
         euPort: 80
+        euWeight: 1  # Low weight - use as backup/prefer local first
+      - cluster: k3d-dc-eu
+        url: https://kubernetes.default.svc
+        # EU region: use local service (same cluster) - ClusterIP access
+        euHost: ledger-app.default.svc.cluster.local
+        euPort: 80
+        euWeight: 100  # High weight - prefer local region
+        # US region: use external LoadBalancer IP (cross-cluster)
+        # Run: ./scripts/setup-global-lb.sh to discover and update
+        usHost: "CHANGE_ME"  # Replace with US LoadBalancer IP
+        usPort: 80
+        usWeight: 1  # Low weight - use as backup/prefer local first
   
   template:
     metadata:
@@ -39,9 +51,11 @@ spec:
               us-east-1:
                 host: {{usHost}}
                 port: {{usPort}}
+                weight: {{usWeight | default 100}}
               eu-central-1:
                 host: {{euHost}}
                 port: {{euPort}}
+                weight: {{euWeight | default 100}}
       destination:
         server: '{{url}}'
         namespace: default

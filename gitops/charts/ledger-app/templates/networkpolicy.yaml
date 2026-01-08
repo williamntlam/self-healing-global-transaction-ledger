@@ -1,0 +1,33 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ledger-app.fullname" . }}-network-policy
+  labels:
+    {{- include "ledger-app.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ledger-app.selectorLabels" . | nindent 6 }}
+      region: {{ .Values.region.name }}
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow traffic from global load balancer pods only
+  - from:
+    - podSelector:
+        matchLabels:
+          app: global-lb
+    ports:
+    - protocol: TCP
+      port: {{ .Values.app.port }}
+  # Allow traffic from Kubernetes system (for health checks, probes)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: {{ .Values.app.port }}
+  # Deny all other traffic (including direct external access)
+{{- end }}
