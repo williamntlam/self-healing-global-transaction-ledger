@@ -1,0 +1,56 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: global-lb
+  namespace: argocd
+spec:
+  generators:
+  # Deploy to US cluster (can reach both regions via external IPs)
+  - list:
+      elements:
+      - cluster: k3d-dc-us
+        url: https://kubernetes.default.svc
+        # US region: use local service (same cluster)
+        usHost: ledger-app.default.svc.cluster.local
+        usPort: 80
+        # EU region: use external LoadBalancer IP (discovered at deploy time)
+        # Run: ./scripts/setup-global-lb.sh to discover and update these
+        # Or get manually: kubectl --context k3d-dc-eu get svc ledger-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        euHost: "CHANGE_ME"  # Replace with EU LoadBalancer IP
+        euPort: 80
+  
+  template:
+    metadata:
+      name: '{{cluster}}-global-lb'
+      labels:
+        app: global-lb
+    spec:
+      project: default
+      source:
+        repoURL: file:///gitops
+        targetRevision: HEAD
+        path: charts/global-lb
+        helm:
+          valueFiles:
+            - values.yaml
+          values: |
+            upstreams:
+              us-east-1:
+                host: {{usHost}}
+                port: {{usPort}}
+              eu-central-1:
+                host: {{euHost}}
+                port: {{euPort}}
+      destination:
+        server: '{{url}}'
+        namespace: default
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - PruneLast=true
+

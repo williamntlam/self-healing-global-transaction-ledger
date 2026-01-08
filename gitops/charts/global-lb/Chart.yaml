@@ -1,0 +1,7 @@
+apiVersion: v2
+name: global-lb
+description: Global Load Balancer for Multi-Region Failover
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+

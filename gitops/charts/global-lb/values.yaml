@@ -1,0 +1,54 @@
+# Global Load Balancer Configuration
+# This load balancer provides automatic failover between regions
+
+# Image configuration
+image:
+  repository: nginx
+  tag: "1.25-alpine"
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8080
+
+# Upstream regions configuration
+# For K3d: Use external LoadBalancer IPs or host.docker.internal
+# These will be discovered automatically or set via ConfigMap
+upstreams:
+  us-east-1:
+    # For same-cluster: use service name
+    # For cross-cluster: use external IP or host.docker.internal
+    host: "ledger-app.default.svc.cluster.local"
+    port: 80
+    weight: 100
+    maxFails: 3
+    failTimeout: 10s
+  eu-central-1:
+    # Will be overridden by ApplicationSet with external IP
+    host: "ledger-app.default.svc.cluster.local"
+    port: 80
+    weight: 100
+    maxFails: 3
+    failTimeout: 10s
+
+# Health check configuration
+healthCheck:
+  path: "/health"
+  interval: 5s
+  timeout: 3s
+  healthyThreshold: 2
+  unhealthyThreshold: 3
+
+# Resource limits
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+# Replicas
+replicas: 2
