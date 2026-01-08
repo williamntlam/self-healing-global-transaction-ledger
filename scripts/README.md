@@ -10,15 +10,24 @@ Simulates regional outages and validates failover behavior.
 
 **Usage:**
 ```bash
-# Simulate outage in US-East region
+# Full mode: Stop entire cluster (most destructive)
 ./scripts/blast_radius.sh us-east-1
+./scripts/blast_radius.sh us-east-1 full
+
+# Pause mode: Stop only application pods (less destructive)
+./scripts/blast_radius.sh us-east-1 pause
 
 # Simulate outage in EU-Central region
 ./scripts/blast_radius.sh eu-central-1
+./scripts/blast_radius.sh eu-central-1 pause
 
-# Default (US-East)
+# Default (US-East, full mode)
 ./scripts/blast_radius.sh
 ```
+
+**Modes:**
+- **`full`** (default): Stops entire K3d cluster - simulates complete regional outage
+- **`pause`**: Stops only application pods - cluster infrastructure stays running
 
 **What it does:**
 
@@ -27,8 +36,8 @@ Simulates regional outages and validates failover behavior.
    - Verifies both regions are operational
 
 2. **Simulates Outage**
-   - Stops the target K3d cluster
-   - Simulates a complete regional failure
+   - **Full mode**: Stops the entire K3d cluster (simulates complete regional failure)
+   - **Pause mode**: Stops only application pods (cluster infrastructure remains running)
 
 3. **Validates Failover**
    - Checks surviving region is healthy
@@ -38,8 +47,8 @@ Simulates regional outages and validates failover behavior.
    - Checks ArgoCD self-healing behavior
 
 4. **Restores Cluster**
-   - Starts the stopped cluster
-   - Waits for pods to be ready
+   - **Full mode**: Starts the stopped cluster and waits for pods
+   - **Pause mode**: Scales application pods back up to original replica count
 
 5. **Validates Recovery**
    - Verifies restored region is operational

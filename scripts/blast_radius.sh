@@ -3,9 +3,14 @@
 # Simulates regional outages and validates failover behavior
 #
 # Usage:
-#   ./scripts/blast_radius.sh [region]
-#   ./scripts/blast_radius.sh us-east-1
-#   ./scripts/blast_radius.sh eu-central-1
+#   ./scripts/blast_radius.sh [region] [mode]
+#   ./scripts/blast_radius.sh us-east-1          # Full mode: stops entire cluster
+#   ./scripts/blast_radius.sh us-east-1 pause    # Pause mode: stops only app pods
+#   ./scripts/blast_radius.sh eu-central-1 full # Explicit full mode
+#
+# Modes:
+#   full  - Stops entire K3d cluster (most destructive, simulates complete outage)
+#   pause - Stops only application pods (less destructive, cluster still running)
 
 set -euo pipefail
 
@@ -19,6 +24,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 REGION=${1:-us-east-1}
+MODE=${2:-full}  # "full" (stop cluster) or "pause" (stop pods only)
 REGION_PREFIX="${REGION%%-*}"  # Extract "us" or "eu"
 CLUSTER_NAME="k3d-dc-${REGION_PREFIX}"
 
@@ -302,19 +308,40 @@ establish_baseline() {
 
 # Simulate outage
 simulate_outage() {
-    log_step "Simulating Outage in $REGION"
+    log_step "Simulating Outage in $REGION (Mode: $MODE)"
     
-    log_warning "Stopping cluster: $CLUSTER_NAME"
-    
-    if k3d cluster stop "$CLUSTER_NAME" 2>/dev/null; then
-        log_success "Cluster $CLUSTER_NAME stopped"
+    if [ "$MODE" = "pause" ]; then
+        # Pause mode: Stop only application pods (less destructive)
+        log_warning "Pausing application in $CLUSTER_NAME (stopping pods only)"
+        
+        # Scale down ledger-app deployment
+        if kubectl --context "$CLUSTER_NAME" scale deployment ledger-app --replicas=0 2>/dev/null; then
+            log_success "Ledger app scaled down to 0 replicas"
+        else
+            log_error "Failed to scale down ledger-app"
+            return 1
+        fi
+        
+        # Optionally scale down other services
+        log_info "Application paused. Cluster still running."
+        log_info "Waiting 5 seconds for system to detect outage..."
+        sleep 5
+        
     else
-        log_error "Failed to stop cluster $CLUSTER_NAME"
-        log_info "Cluster may already be stopped"
+        # Full mode: Stop entire cluster (most destructive)
+        log_warning "Stopping entire cluster: $CLUSTER_NAME"
+        log_warning "This will stop ALL services in the cluster"
+        
+        if k3d cluster stop "$CLUSTER_NAME" 2>/dev/null; then
+            log_success "Cluster $CLUSTER_NAME stopped"
+        else
+            log_error "Failed to stop cluster $CLUSTER_NAME"
+            log_info "Cluster may already be stopped"
+        fi
+        
+        log_info "Waiting 10 seconds for system to detect outage..."
+        sleep 10
     fi
-    
-    log_info "Waiting 10 seconds for system to detect outage..."
-    sleep 10
 }
 
 # Validate failover
@@ -388,27 +415,64 @@ validate_failover() {
 restore_cluster() {
     log_step "Restoring Cluster"
     
-    log_info "Starting cluster: $CLUSTER_NAME"
-    
-    if k3d cluster start "$CLUSTER_NAME" 2>/dev/null; then
-        log_success "Cluster $CLUSTER_NAME started"
+    if [ "$MODE" = "pause" ]; then
+        # Pause mode: Scale up application pods
+        log_info "Resuming application in $CLUSTER_NAME (scaling pods back up)"
+        
+        # Get original replica count (default to 2 if not found)
+        local replicas=2
+        if kubectl --context "$CLUSTER_NAME" get deployment ledger-app &> /dev/null; then
+            local current_replicas
+            current_replicas=$(kubectl --context "$CLUSTER_NAME" get deployment ledger-app -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "2")
+            if [ -n "$current_replicas" ] && [ "$current_replicas" != "0" ]; then
+                replicas=$current_replicas
+            fi
+        fi
+        
+        if kubectl --context "$CLUSTER_NAME" scale deployment ledger-app --replicas=$replicas 2>/dev/null; then
+            log_success "Ledger app scaled up to $replicas replicas"
+        else
+            log_error "Failed to scale up ledger-app"
+            return 1
+        fi
+        
+        log_info "Waiting 15 seconds for pods to be ready..."
+        sleep 15
+        
+        # Wait for pods to be ready
+        log_info "Waiting for pods to be ready..."
+        if kubectl --context "$CLUSTER_NAME" wait --for=condition=ready pod -l app=ledger-app --timeout=120s 2>/dev/null; then
+            log_success "Pods are ready"
+        else
+            log_warning "Some pods may not be ready yet (this is okay)"
+        fi
+        
+        log_success "Application in $CLUSTER_NAME restored"
+        
     else
-        log_error "Failed to start cluster $CLUSTER_NAME"
-        return 1
+        # Full mode: Start entire cluster
+        log_info "Starting cluster: $CLUSTER_NAME"
+        
+        if k3d cluster start "$CLUSTER_NAME" 2>/dev/null; then
+            log_success "Cluster $CLUSTER_NAME started"
+        else
+            log_error "Failed to start cluster $CLUSTER_NAME"
+            return 1
+        fi
+        
+        log_info "Waiting 30 seconds for cluster to be ready..."
+        sleep 30
+        
+        # Wait for pods to be ready (with timeout)
+        log_info "Waiting for pods to be ready..."
+        if kubectl --context "$CLUSTER_NAME" wait --for=condition=ready pod -l app=ledger-app --timeout=120s 2>/dev/null; then
+            log_success "Pods are ready"
+        else
+            log_warning "Some pods may not be ready yet (this is okay)"
+        fi
+        
+        log_success "Cluster $CLUSTER_NAME restored"
     fi
-    
-    log_info "Waiting 30 seconds for cluster to be ready..."
-    sleep 30
-    
-    # Wait for pods to be ready (with timeout)
-    log_info "Waiting for pods to be ready..."
-    if kubectl --context "$CLUSTER_NAME" wait --for=condition=ready pod -l app=ledger-app --timeout=120s 2>/dev/null; then
-        log_success "Pods are ready"
-    else
-        log_warning "Some pods may not be ready yet (this is okay)"
-    fi
-    
-    log_success "Cluster $CLUSTER_NAME restored"
 }
 
 # Validate recovery
@@ -493,6 +557,7 @@ main() {
     log_info "  Target Region: $REGION"
     log_info "  Target Cluster: $CLUSTER_NAME"
     log_info "  Surviving Cluster: $SURVIVING_CLUSTER"
+    log_info "  Mode: $MODE ($([ "$MODE" = "pause" ] && echo "pauses pods only" || echo "stops entire cluster"))"
     echo ""
     
     check_prerequisites
