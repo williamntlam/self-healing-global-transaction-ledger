@@ -9,9 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/project-atlas/ledger-app/internal/database"
 	"github.com/project-atlas/ledger-app/internal/models"
-	"github.com/project-atlas/ledger-app/internal/s3"
 	"github.com/project-atlas/ledger-app/internal/sqs"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
@@ -19,15 +17,15 @@ import (
 
 // Handler holds all HTTP handlers
 type Handler struct {
-	db      *database.DB
-	s3      *s3.Client
-	sqs     *sqs.Client
+	db      DBInterface
+	s3      S3Interface
+	sqs     SQSInterface
 	region  string
 	logger  *zap.Logger
 }
 
 // NewHandler creates a new handler instance
-func NewHandler(db *database.DB, s3Client *s3.Client, sqsClient *sqs.Client, region string, logger *zap.Logger) *Handler {
+func NewHandler(db DBInterface, s3Client S3Interface, sqsClient SQSInterface, region string, logger *zap.Logger) *Handler {
 	return &Handler{
 		db:     db,
 		s3:     s3Client,
