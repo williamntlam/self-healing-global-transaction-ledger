@@ -156,17 +156,21 @@ func TestClient_ReceiveMessages_Success(t *testing.T) {
 		},
 	}, nil)
 
-	messages, err := client.ReceiveMessages(10, 0)
+	receivedMessages, err := client.ReceiveMessages(10, 0)
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	if len(messages) != 1 {
-		t.Errorf("Expected 1 message, got %d", len(messages))
+	if len(receivedMessages) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(receivedMessages))
 	}
 
-	if messages[0].TransactionID != "test-tx-123" {
-		t.Errorf("Expected transaction ID 'test-tx-123', got '%s'", messages[0].TransactionID)
+	if receivedMessages[0].Message.TransactionID != "test-tx-123" {
+		t.Errorf("Expected transaction ID 'test-tx-123', got '%s'", receivedMessages[0].Message.TransactionID)
+	}
+
+	if receivedMessages[0].ReceiptHandle != "receipt-1" {
+		t.Errorf("Expected receipt handle 'receipt-1', got '%s'", receivedMessages[0].ReceiptHandle)
 	}
 
 	mockAPI.AssertExpectations(t)
@@ -181,13 +185,13 @@ func TestClient_ReceiveMessages_Empty(t *testing.T) {
 		Messages: []*sqs.Message{},
 	}, nil)
 
-	messages, err := client.ReceiveMessages(10, 0)
+	receivedMessages, err := client.ReceiveMessages(10, 0)
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	if len(messages) != 0 {
-		t.Errorf("Expected 0 messages, got %d", len(messages))
+	if len(receivedMessages) != 0 {
+		t.Errorf("Expected 0 messages, got %d", len(receivedMessages))
 	}
 
 	mockAPI.AssertExpectations(t)
@@ -209,14 +213,14 @@ func TestClient_ReceiveMessages_UnmarshalError(t *testing.T) {
 		},
 	}, nil)
 
-	messages, err := client.ReceiveMessages(10, 0)
+	receivedMessages, err := client.ReceiveMessages(10, 0)
 	// Function should continue on unmarshal errors (logs warning, skips message)
 	if err != nil {
 		t.Errorf("Expected no error (unmarshal errors are logged but not returned), got: %v", err)
 	}
 
-	if len(messages) != 0 {
-		t.Errorf("Expected 0 messages (invalid message skipped), got %d", len(messages))
+	if len(receivedMessages) != 0 {
+		t.Errorf("Expected 0 messages (invalid message skipped), got %d", len(receivedMessages))
 	}
 
 	mockAPI.AssertExpectations(t)
@@ -229,13 +233,13 @@ func TestClient_ReceiveMessages_SQSError(t *testing.T) {
 
 	mockAPI.On("ReceiveMessage", mock.Anything).Return(nil, errors.New("SQS error"))
 
-	messages, err := client.ReceiveMessages(10, 0)
+	receivedMessages, err := client.ReceiveMessages(10, 0)
 	if err == nil {
 		t.Error("Expected error, got nil")
 	}
 
-	if messages != nil {
-		t.Errorf("Expected nil messages, got %v", messages)
+	if receivedMessages != nil {
+		t.Errorf("Expected nil messages, got %v", receivedMessages)
 	}
 
 	mockAPI.AssertExpectations(t)

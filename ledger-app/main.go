@@ -130,27 +130,48 @@ func processSQSMessages(sqsClient *sqs.Client, db *database.DB, s3Client *s3.Cli
 	defer ticker.Stop()
 
 	for range ticker.C {
-		messages, err := sqsClient.ReceiveMessages(10, 0)
+		receivedMessages, err := sqsClient.ReceiveMessages(10, 0)
 		if err != nil {
 			logger.Warn("Failed to receive SQS messages", zap.Error(err))
 			continue
 		}
 
-		for _, msg := range messages {
+		for _, receivedMsg := range receivedMessages {
+			msg := receivedMsg.Message
 			logger.Info("Processing SQS message",
 				zap.String("transaction_id", msg.TransactionID),
 				zap.String("action", msg.Action),
 			)
 
 			// Process message based on action
+			processed := false
 			switch msg.Action {
 			case "transaction_created":
-				// Message already processed, just log
+				// Message already processed during API call, just log
 				logger.Info("Transaction created message processed",
 					zap.String("transaction_id", msg.TransactionID),
 				)
+				processed = true
 			default:
 				logger.Info("Unknown action", zap.String("action", msg.Action))
+				processed = true // Delete unknown messages to prevent infinite retries
+			}
+
+			// Delete message from queue after successful processing
+			if processed {
+				if err := sqsClient.DeleteMessage(receivedMsg.ReceiptHandle); err != nil {
+					logger.Error("Failed to delete SQS message after processing",
+						zap.Error(err),
+						zap.String("transaction_id", msg.TransactionID),
+						zap.String("receipt_handle", receivedMsg.ReceiptHandle),
+					)
+					// Message will become visible again after visibility timeout
+					// and will be retried
+				} else {
+					logger.Info("SQS message deleted after processing",
+						zap.String("transaction_id", msg.TransactionID),
+					)
+				}
 			}
 		}
 	}

@@ -45,6 +45,12 @@ type Message struct {
 	Data           string    `json:"data"`
 }
 
+// ReceivedMessage represents a message received from SQS with its receipt handle
+type ReceivedMessage struct {
+	Message      *Message
+	ReceiptHandle string
+}
+
 // New creates a new SQS client
 func New(config Config, logger *zap.Logger) (*Client, error) {
 	// Create AWS session with LocalStack endpoint
@@ -144,7 +150,8 @@ func (c *Client) SendMessage(msg *Message) error {
 }
 
 // ReceiveMessages receives messages from the queue
-func (c *Client) ReceiveMessages(maxMessages int64, waitTimeSeconds int64) ([]*Message, error) {
+// Returns messages with their receipt handles for deletion after processing
+func (c *Client) ReceiveMessages(maxMessages int64, waitTimeSeconds int64) ([]*ReceivedMessage, error) {
 	result, err := c.sqsClient.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueUrl:            aws.String(c.queueURL),
 		MaxNumberOfMessages: aws.Int64(maxMessages),
@@ -159,7 +166,7 @@ func (c *Client) ReceiveMessages(maxMessages int64, waitTimeSeconds int64) ([]*M
 		return nil, fmt.Errorf("failed to receive messages: %w", err)
 	}
 
-	var messages []*Message
+	var receivedMessages []*ReceivedMessage
 	for _, sqsMsg := range result.Messages {
 		var msg Message
 		if err := json.Unmarshal([]byte(*sqsMsg.Body), &msg); err != nil {
@@ -169,10 +176,13 @@ func (c *Client) ReceiveMessages(maxMessages int64, waitTimeSeconds int64) ([]*M
 			)
 			continue
 		}
-		messages = append(messages, &msg)
+		receivedMessages = append(receivedMessages, &ReceivedMessage{
+			Message:      &msg,
+			ReceiptHandle: *sqsMsg.ReceiptHandle,
+		})
 	}
 
-	return messages, nil
+	return receivedMessages, nil
 }
 
 // DeleteMessage deletes a message from the queue
