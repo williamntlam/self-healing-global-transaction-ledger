@@ -12,9 +12,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// sqsAPI defines the SQS operations we need
+type sqsAPI interface {
+	GetQueueUrl(input *sqs.GetQueueUrlInput) (*sqs.GetQueueUrlOutput, error)
+	CreateQueue(input *sqs.CreateQueueInput) (*sqs.CreateQueueOutput, error)
+	SendMessage(input *sqs.SendMessageInput) (*sqs.SendMessageOutput, error)
+	ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error)
+	DeleteMessage(input *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error)
+	GetQueueAttributes(input *sqs.GetQueueAttributesInput) (*sqs.GetQueueAttributesOutput, error)
+}
+
 // Client wraps the SQS client for LocalStack
 type Client struct {
-	sqsClient *sqs.SQS
+	sqsClient sqsAPI
 	queueURL  string
 	logger    *zap.Logger
 }
@@ -70,7 +80,7 @@ func New(config Config, logger *zap.Logger) (*Client, error) {
 }
 
 // ensureQueue gets the queue URL or creates the queue if it doesn't exist
-func ensureQueue(sqsClient *sqs.SQS, queueName, region string) (string, error) {
+func ensureQueue(sqsClient sqsAPI, queueName, region string) (string, error) {
 	// Try to get queue URL
 	result, err := sqsClient.GetQueueUrl(&sqs.GetQueueUrlInput{
 		QueueName: aws.String(queueName),

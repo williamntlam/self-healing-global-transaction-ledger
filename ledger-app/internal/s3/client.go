@@ -14,7 +14,7 @@ import (
 
 // Client wraps the S3 client for LocalStack
 type Client struct {
-	s3Client *s3.S3
+	s3Client s3API
 	bucket   string
 	logger   *zap.Logger
 }
@@ -59,8 +59,15 @@ func New(config Config, logger *zap.Logger) (*Client, error) {
 	}, nil
 }
 
+// s3API defines the S3 operations we need
+type s3API interface {
+	HeadBucket(input *s3.HeadBucketInput) (*s3.HeadBucketOutput, error)
+	CreateBucket(input *s3.CreateBucketInput) (*s3.CreateBucketOutput, error)
+	PutObject(input *s3.PutObjectInput) (*s3.PutObjectOutput, error)
+}
+
 // ensureBucket creates the bucket if it doesn't exist
-func ensureBucket(s3Client *s3.S3, bucketName string) error {
+func ensureBucket(s3Client s3API, bucketName string) error {
 	// Check if bucket exists
 	_, err := s3Client.HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucketName),
