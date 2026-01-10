@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )
